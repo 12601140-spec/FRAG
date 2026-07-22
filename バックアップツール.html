@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>簡易バックアップツール</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* カスタムスタイル: スクロールバーの非表示やスピナーのアニメーション */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555; 
+        }
+        
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3b82f6; /* Blue-500 */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans min-h-screen flex flex-col items-center py-10">
+
+    <div class="w-full max-w-4xl px-4">
+        <header class="text-center mb-10">
+            <h1 class="text-3xl font-bold text-blue-600 mb-2"><i class="fas fa-cloud-upload-alt mr-2"></i>簡易バックアップツール</h1>
+            <p class="text-gray-600">最大5つのファイルをブラウザ内に保存・復元できます。</p>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            
+            <!-- 左側: アップロードフォーム -->
+            <div class="md:col-span-1 bg-white p-6 rounded-xl shadow-md border border-gray-100 h-fit">
+                <h2 class="text-xl font-semibold mb-4 border-b pb-2">新規保存</h2>
+                
+                <form id="uploadForm" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">ファイル選択</label>
+                        <input type="file" id="fileInput" class="block w-full text-sm text-gray-500
+                            file:mr-4 file:py-2 file:px-4
+                            file:rounded-md file:border-0
+                            file:text-sm file:font-semibold
+                            file:bg-blue-50 file:text-blue-700
+                            hover:file:bg-blue-100 cursor-pointer border border-gray-300 rounded-md p-1" required>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">表示名 (任意)</label>
+                        <input type="text" id="fileNameInput" placeholder="デフォルトはファイル名" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2 text-sm">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">説明・メモ (任意)</label>
+                        <textarea id="fileDescInput" rows="3" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2 text-sm" placeholder="このファイルに関するメモ..."></textarea>
+                    </div>
+
+                    <div id="storageStatus" class="text-xs text-right text-gray-500 font-medium">
+                        保存容量: 0 / 5
+                    </div>
+
+                    <button type="submit" id="saveBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition duration-200 flex items-center justify-center">
+                        <i class="fas fa-save mr-2"></i> 保存する
+                    </button>
+                    <div id="uploadError" class="text-red-500 text-sm hidden mt-2"></div>
+                </form>
+            </div>
+
+            <!-- 右側: 保存済みファイルリスト -->
+            <div class="md:col-span-2 bg-white p-6 rounded-xl shadow-md border border-gray-100">
+                <div class="flex justify-between items-center mb-4 border-b pb-2">
+                    <h2 class="text-xl font-semibold">保存済みデータ</h2>
+                    <button id="clearAllBtn" class="text-sm text-red-500 hover:text-red-700 flex items-center hidden">
+                        <i class="fas fa-trash-alt mr-1"></i> 全て削除
+                    </button>
+                </div>
+
+                <div id="fileList" class="space-y-4">
+                    <!-- ファイルリストがここに動的に生成されます -->
+                    <div class="text-center py-8 text-gray-400 italic" id="emptyState">
+                        <i class="fas fa-inbox text-4xl mb-2"></i><br>
+                        保存されたファイルはありません。
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ダウンロード中モーダル -->
+    <div id="downloadModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden backdrop-blur-sm">
+        <div class="bg-white p-8 rounded-xl shadow-2xl flex flex-col items-center max-w-sm w-full mx-4 fade-in">
+            <div class="loader mb-6"></div>
+            <h3 class="text-lg font-bold text-gray-800 mb-2">ダウンロード準備中...</h3>
+            <p class="text-sm text-gray-500 text-center mb-4">データの復元と暗号化解除を行っています。<br>ブラウザを閉じないでください。</p>
+            
+            <!-- プログレスバー -->
+            <div class="w-full bg-gray-200 rounded-full h-2.5 mb-2">
+                <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-100 ease-linear" style="width: 0%"></div>
+            </div>
+            <div class="flex justify-between w-full text-xs text-gray-500">
+                <span id="progressTime">20秒</span>
+                <span id="progressPercent">0%</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通知トースト -->
+    <div id="toast" class="fixed bottom-5 right-5 bg-green-500 text-white px-6 py-3 rounded shadow-lg transform translate-y-20 opacity-0 transition-all duration-300 z-50 flex items-center">
+        <i class="fas fa-check-circle mr-2"></i>
+        <span id="toastMsg">操作が完了しました。</span>
+    </div>
+
+    <script>
+        const MAX_FILES = 5;
+        const STORAGE_KEY = 'backup_tool_data';
+
+        // DOM Elements
+        const form = document.getElementById('uploadForm');
+        const fileInput = document.getElementById('fileInput');
+        const nameInput = document.getElementById('fileNameInput');
+        const descInput = document.getElementById('fileDescInput');
+        const fileListContainer = document.getElementById('fileList');
+        const emptyState = document.getElementById('emptyState');
+        const storageStatus = document.getElementById('storageStatus');
+        const saveBtn = document.getElementById('saveBtn');
+        const uploadError = document.getElementById('uploadError');
+        const clearAllBtn = document.getElementById('clearAllBtn');
+        
+        // Modal Elements
+        const downloadModal = document.getElementById('downloadModal');
+        const progressBar = document.getElementById('progressBar');
+        const progressTime = document.getElementById('progressTime');
+        const progressPercent = document.getElementById('progressPercent');
+        
+        // Toast Element
+        const toast = document.getElementById('toast');
+        let toastTimeout;
+
+        // 初期化
+        document.addEventListener('DOMContentLoaded', renderFileList);
+
+        // トースト通知を表示する関数
+        function showToast(message, isError = false) {
+            const toastMsg = document.getElementById('toastMsg');
+            toastMsg.textContent = message;
+            
+            if (isError) {
+                toast.classList.remove('bg-green-500');
+                toast.classList.add('bg-red-500');
+                toastMsg.previousElementSibling.className = 'fas fa-exclamation-circle mr-2';
+            } else {
+                toast.classList.remove('bg-red-500');
+                toast.classList.add('bg-green-500');
+                toastMsg.previousElementSibling.className = 'fas fa-check-circle mr-2';
+            }
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+
+        // ファイル保存処理
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            uploadError.classList.add('hidden');
+
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            try {
+                let savedData = getSavedData();
+                
+                if (savedData.length >= MAX_FILES) {
+                    throw new Error(`保存上限（最大${MAX_FILES}個）に達しています。既存のファイルを削除してください。`);
+                }
+
+                // ファイルをBase64に変換 (サイズ制限に注意: localStorageは通常5MB程度)
+                const base64Data = await readFileAsBase64(file);
+                
+                // localStorageの容量チェックを簡易的に行う
+                const testData = JSON.stringify(savedData) + base64Data;
+                if (testData.length > 4500000) { // 約4.5MB制限の目安
+                     throw new Error('ファイルサイズが大きすぎます。ブラウザの保存容量制限を超過しました。');
+                }
+
+                const newBackup = {
+                    id: Date.now().toString(),
+                    originalName: file.name,
+                    displayName: nameInput.value.trim() || file.name,
+                    description: descInput.value.trim(),
+                    type: file.type || 'application/octet-stream',
+                    size: file.size,
+                    date: new Date().toLocaleString(),
+                    data: base64Data
+                };
+
+                savedData.push(newBackup);
+                saveData(savedData);
+                
+                // フォームリセット
+                form.reset();
+                renderFileList();
+                showToast('ファイルを保存しました。');
+
+            } catch (error) {
+                uploadError.textContent = error.message;
+                uploadError.classList.remove('hidden');
+            }
+        });
+
+        // ファイルをBase64文字列として読み込む
+        function readFileAsBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = error => reject(error);
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // データの取得
+        function getSavedData() {
+            const data = localStorage.getItem(STORAGE_KEY);
+            return data ? JSON.parse(data) : [];
+        }
+
+        // データの保存
+        function saveData(data) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        }
+
+        // ファイルサイズのフォーマット
+        function formatBytes(bytes, decimals = 2) {
+            if (!+bytes) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+        }
+
+        // リストの描画
+        function renderFileList() {
+            const data = getSavedData();
+            fileListContainer.innerHTML = '';
+            
+            // ステータス更新
+            storageStatus.textContent = `保存容量: ${data.length} / ${MAX_FILES}`;
+            storageStatus.className = `text-xs text-right font-medium ${data.length >= MAX_FILES ? 'text-red-500' : 'text-gray-500'}`;
+            
+            saveBtn.disabled = data.length >= MAX_FILES;
+            if(data.length >= MAX_FILES) {
+                saveBtn.classList.replace('bg-blue-600', 'bg-gray-400');
+                saveBtn.classList.replace('hover:bg-blue-700', 'hover:bg-gray-400');
+                saveBtn.classList.add('cursor-not-allowed');
+            } else {
+                saveBtn.classList.replace('bg-gray-400', 'bg-blue-600');
+                saveBtn.classList.replace('hover:bg-gray-400', 'hover:bg-blue-700');
+                saveBtn.classList.remove('cursor-not-allowed');
+            }
+
+            if (data.length === 0) {
+                fileListContainer.appendChild(emptyState);
+                emptyState.style.display = 'block';
+                clearAllBtn.classList.add('hidden');
+                return;
+            }
+
+            emptyState.style.display = 'none';
+            clearAllBtn.classList.remove('hidden');
+
+            // 新しい順に表示
+            data.slice().reverse().forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow bg-gray-50 fade-in flex flex-col sm:flex-row justify-between gap-4';
+                
+                const iconClass = getIconClass(item.type);
+
+                card.innerHTML = `
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center mb-1">
+                            <i class="${iconClass} text-gray-500 text-xl mr-3 w-6 text-center"></i>
+                            <h3 class="text-lg font-bold text-gray-800 truncate" title="${item.displayName}">${item.displayName}</h3>
+                        </div>
+                        <p class="text-xs text-gray-500 mb-2 ml-9">
+                            ${item.originalName} • ${formatBytes(item.size)} • ${item.date}
+                        </p>
+                        ${item.description ? `<p class="text-sm text-gray-600 bg-white p-2 rounded border border-gray-100 ml-9 break-words">${item.description}</p>` : ''}
+                    </div>
+                    <div class="flex sm:flex-col justify-end gap-2 shrink-0">
+                        <button onclick="startDownload('${item.id}')" class="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded text-sm transition-colors flex items-center justify-center shadow-sm">
+                            <i class="fas fa-download mr-1"></i> ダウンロード
+                        </button>
+                        <button onclick="deleteFile('${item.id}')" class="bg-white border border-red-200 text-red-500 hover:bg-red-50 hover:border-red-300 px-3 py-2 rounded text-sm transition-colors flex items-center justify-center shadow-sm">
+                            <i class="fas fa-trash mr-1"></i> 削除
+                        </button>
+                    </div>
+                `;
+                fileListContainer.appendChild(card);
+            });
+        }
+
+        // ファイルタイプに応じたアイコンを取得
+        function getIconClass(mimeType) {
+            if (mimeType.startsWith('image/')) return 'fas fa-file-image';
+            if (mimeType.startsWith('video/')) return 'fas fa-file-video';
+            if (mimeType.startsWith('audio/')) return 'fas fa-file-audio';
+            if (mimeType === 'application/pdf') return 'fas fa-file-pdf';
+            if (mimeType.includes('spreadsheet') || mimeType.includes('excel')) return 'fas fa-file-excel';
+            if (mimeType.includes('word')) return 'fas fa-file-word';
+            if (mimeType.includes('zip') || mimeType.includes('compressed')) return 'fas fa-file-archive';
+            if (mimeType.startsWith('text/')) return 'fas fa-file-alt';
+            return 'fas fa-file';
+        }
+
+        // 削除処理
+        window.deleteFile = function(id) {
+            if (confirm('このファイルを削除してもよろしいですか？')) {
+                let data = getSavedData();
+                data = data.filter(item => item.id !== id);
+                saveData(data);
+                renderFileList();
+                showToast('ファイルを削除しました。');
+            }
+        }
+
+        // 全て削除
+        clearAllBtn.addEventListener('click', () => {
+            if (confirm('保存されているすべてのファイルを削除します。よろしいですか？')) {
+                localStorage.removeItem(STORAGE_KEY);
+                renderFileList();
+                showToast('すべてのデータを削除しました。');
+            }
+        });
+
+        // ダウンロード処理（20秒のモーション付き）
+        window.startDownload = function(id) {
+            const data = getSavedData();
+            const fileItem = data.find(item => item.id === id);
+            
+            if (!fileItem) {
+                showToast('ファイルが見つかりません。', true);
+                return;
+            }
+
+            // モーダル表示
+            downloadModal.classList.remove('hidden');
+            
+            const totalDuration = 20000; // 20秒
+            const intervalTime = 100; // 100msごとに更新
+            let elapsed = 0;
+
+            const progressInterval = setInterval(() => {
+                elapsed += intervalTime;
+                
+                // 進行割合を計算
+                let percent = (elapsed / totalDuration) * 100;
+                
+                // 意図的に少しランダムに進行させてリアル感を出す
+                if (percent < 90) {
+                    const jitter = Math.random() * 2 - 1; // -1 to 1
+                    percent += jitter;
+                }
+                
+                // 上限100%
+                percent = Math.min(percent, 100);
+
+                // UI更新
+                progressBar.style.width = `${percent}%`;
+                progressPercent.textContent = `${Math.floor(percent)}%`;
+                
+                const remainingSec = Math.ceil((totalDuration - elapsed) / 1000);
+                progressTime.textContent = remainingSec > 0 ? `残り約 ${remainingSec} 秒` : '完了処理中...';
+
+                // 完了時
+                if (elapsed >= totalDuration) {
+                    clearInterval(progressInterval);
+                    executeActualDownload(fileItem);
+                    
+                    // 少し遅延させてモーダルを閉じる
+                    setTimeout(() => {
+                        downloadModal.classList.add('hidden');
+                        progressBar.style.width = '0%';
+                        showToast(`${fileItem.displayName} をダウンロードしました。`);
+                    }, 500);
+                }
+            }, intervalTime);
+        }
+
+        // 実際のダウンロード実行
+        function executeActualDownload(fileItem) {
+            // Data URLからBlobを生成してダウンロードさせる方法（大きなファイルでも安定）
+            // fetch を使って Data URL を Blob に変換
+            fetch(fileItem.data)
+                .then(res => res.blob())
+                .then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    // 保存時のオリジナル名か表示名を使用
+                    a.download = fileItem.originalName;
+                    document.body.appendChild(a);
+                    a.click();
+                    
+                    // クリーンアップ
+                    setTimeout(() => {
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(url);
+                    }, 100);
+                })
+                .catch(err => {
+                    console.error("Download Error:", err);
+                    // フォールバック: 直接hrefに設定 (古いブラウザ用、ただしサイズ制限あり)
+                    const a = document.createElement('a');
+                    a.href = fileItem.data;
+                    a.download = fileItem.originalName;
+                    a.click();
+                });
+        }
+    </script>
+</body>
+</html>
